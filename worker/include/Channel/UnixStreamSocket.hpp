@@ -19,7 +19,7 @@ namespace Channel
 		};
 
 	public:
-		explicit UnixStreamSocket(int fd);
+		explicit UnixStreamSocket(std::string socket);
 
 	private:
 		~UnixStreamSocket() override;

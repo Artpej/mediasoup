@@ -17,7 +17,7 @@ public:
 	};
 
 public:
-	UnixStreamSocket(int fd, size_t bufferSize);
+	UnixStreamSocket(std::string socket, size_t bufferSize);
 	UnixStreamSocket& operator=(const UnixStreamSocket&) = delete;
 	UnixStreamSocket(const UnixStreamSocket&)            = delete;
 
@@ -32,6 +32,7 @@ public:
 
 	/* Callbacks fired by UV events. */
 public:
+	void OnUvConnect(int status);
 	void OnUvReadAlloc(size_t suggestedSize, uv_buf_t* buf);
 	void OnUvRead(ssize_t nread, const uv_buf_t* buf);
 	void OnUvWriteError(int error);
@@ -46,6 +47,7 @@ protected:
 private:
 	// Allocated by this.
 	uv_pipe_t* uvHandle{ nullptr };
+	uv_pipe_t* uvServerHandle{ nullptr };
 	// Others.
 	bool isClosing{ false };
 	bool isClosedByPeer{ false };

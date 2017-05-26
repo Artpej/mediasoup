@@ -15,6 +15,11 @@
 
 /* Static methods for UV callbacks. */
 
+inline static void onConnect(uv_stream_t* server, int status)
+{
+  static_cast<UnixStreamSocket*>(server->data)->OnUvConnect(status);
+}
+
 inline static void onAlloc(uv_handle_t* handle, size_t suggestedSize, uv_buf_t* buf)
 {
 	static_cast<UnixStreamSocket*>(handle->data)->OnUvReadAlloc(suggestedSize, buf);
@@ -43,6 +48,13 @@ inline static void onShutdown(uv_shutdown_t* req, int status)
 	static_cast<UnixStreamSocket*>(req->data)->OnUvShutdown(req, status);
 }
 
+inline static void onServerClose(uv_handle_t* handle)
+{
+
+	MS_TRACE_STD();
+}
+
+
 inline static void onClose(uv_handle_t* handle)
 {
 	static_cast<UnixStreamSocket*>(handle->data)->OnUvClosed();
@@ -55,43 +67,55 @@ inline static void onErrorClose(uv_handle_t* handle)
 
 /* Instance methods. */
 
-UnixStreamSocket::UnixStreamSocket(int fd, size_t bufferSize) : bufferSize(bufferSize)
+UnixStreamSocket::UnixStreamSocket(std::string socket, size_t bufferSize) : bufferSize(bufferSize)
 {
 	MS_TRACE_STD();
 
 	int err;
 
-	this->uvHandle       = new uv_pipe_t;
-	this->uvHandle->data = (void*)this;
+  this->uvHandle       = new uv_pipe_t;
+  this->uvHandle->data = (void*)this;
 
-	err = uv_pipe_init(DepLibUV::GetLoop(), this->uvHandle, 0);
+  err = uv_pipe_init(DepLibUV::GetLoop(), this->uvHandle, 0);
 	if (err != 0)
 	{
-		delete this->uvHandle;
-		this->uvHandle = nullptr;
+		delete this->uvServerHandle;
+		this->uvServerHandle = nullptr;
 
 		MS_THROW_ERROR_STD("uv_pipe_init() failed: %s", uv_strerror(err));
 	}
 
-	err = uv_pipe_open(this->uvHandle, fd);
+
+	this->uvServerHandle       = new uv_pipe_t;
+	this->uvServerHandle->data = (void*)this;
+
+	err = uv_pipe_init(DepLibUV::GetLoop(), this->uvServerHandle, 0);
 	if (err != 0)
 	{
-		uv_close(reinterpret_cast<uv_handle_t*>(this->uvHandle), static_cast<uv_close_cb>(onErrorClose));
+		delete this->uvServerHandle;
+		this->uvServerHandle = nullptr;
 
-		MS_THROW_ERROR_STD("uv_pipe_open() failed: %s", uv_strerror(err));
+		MS_THROW_ERROR_STD("uv_pipe_init() failed: %s", uv_strerror(err));
 	}
 
-	// Start reading.
-	err = uv_read_start(
-	    reinterpret_cast<uv_stream_t*>(this->uvHandle),
-	    static_cast<uv_alloc_cb>(onAlloc),
-	    static_cast<uv_read_cb>(onRead));
+	//err = uv_pipe_open(this->uvHandle, fd);
+	err = uv_pipe_bind(this->uvServerHandle, socket.c_str());
 	if (err != 0)
 	{
-		uv_close(reinterpret_cast<uv_handle_t*>(this->uvHandle), static_cast<uv_close_cb>(onErrorClose));
+		uv_close(reinterpret_cast<uv_handle_t*>(this->uvServerHandle), static_cast<uv_close_cb>(onErrorClose));
 
-		MS_THROW_ERROR_STD("uv_read_start() failed: %s", uv_strerror(err));
+		MS_THROW_ERROR_STD("uv_pipe_bind() failed: %s", uv_strerror(err));
 	}
+
+	err = uv_listen(reinterpret_cast<uv_stream_t*>(this->uvServerHandle), 1, static_cast<uv_connection_cb>(onConnect));
+	if (err != 0)
+	{
+		uv_close(reinterpret_cast<uv_handle_t*>(this->uvServerHandle), static_cast<uv_close_cb>(onErrorClose));
+
+		MS_THROW_ERROR_STD("uv_listen() failed: %s", uv_strerror(err));
+	}
+
+
 
 	// NOTE: Don't allocate the buffer here. Instead wait for the first uv_alloc_cb().
 }
@@ -101,6 +125,7 @@ UnixStreamSocket::~UnixStreamSocket()
 	MS_TRACE_STD();
 
 	delete this->uvHandle;
+	delete this->uvServerHandle;
 	delete[] this->buffer;
 }
 
@@ -130,6 +155,8 @@ void UnixStreamSocket::Destroy()
         req, reinterpret_cast<uv_stream_t*>(this->uvHandle), static_cast<uv_shutdown_cb>(onShutdown));
 		if (err != 0)
 			MS_ABORT("uv_shutdown() failed: %s", uv_strerror(err));
+
+
 	}
 	// Otherwise directly close the socket.
 	else
@@ -221,6 +248,35 @@ inline void UnixStreamSocket::OnUvReadAlloc(size_t /*suggestedSize*/, uv_buf_t* 
 	}
 }
 
+inline void UnixStreamSocket::OnUvConnect(const int status)
+{
+
+  int err;
+
+
+  err = uv_accept( reinterpret_cast<uv_stream_t*>(this->uvServerHandle), reinterpret_cast<uv_stream_t*>(this->uvHandle));
+  if (err != 0)
+  {
+    uv_close(reinterpret_cast<uv_handle_t*>(this->uvServerHandle), static_cast<uv_close_cb>(onErrorClose));
+
+    MS_THROW_ERROR_STD("uv_accept() failed: %s", uv_strerror(err));
+  }
+
+	// Start reading.
+	err = uv_read_start(
+	    reinterpret_cast<uv_stream_t*>(this->uvHandle),
+	    static_cast<uv_alloc_cb>(onAlloc),
+	    static_cast<uv_read_cb>(onRead));
+	if (err != 0)
+	{
+		uv_close(reinterpret_cast<uv_handle_t*>(this->uvHandle), static_cast<uv_close_cb>(onErrorClose));
+
+		MS_THROW_ERROR_STD("uv_read_start() failed: %s", uv_strerror(err));
+	}
+
+}
+
+
 inline void UnixStreamSocket::OnUvRead(ssize_t nread, const uv_buf_t* /*buf*/)
 {
 	MS_TRACE_STD();
@@ -294,6 +350,7 @@ inline void UnixStreamSocket::OnUvClosed()
 	// Notify the subclass.
 	UserOnUnixStreamSocketClosed(this->isClosedByPeer);
 
+	uv_close(reinterpret_cast<uv_handle_t*>(this->uvServerHandle), static_cast<uv_close_cb>(onServerClose));
 	// And delete this.
 	delete this;
 }

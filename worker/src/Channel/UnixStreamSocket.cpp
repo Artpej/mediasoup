@@ -23,7 +23,7 @@ namespace Channel
 
 	/* Instance methods. */
 
-	UnixStreamSocket::UnixStreamSocket(int fd) : ::UnixStreamSocket::UnixStreamSocket(fd, MaxSize)
+	UnixStreamSocket::UnixStreamSocket(std::string socket) : ::UnixStreamSocket::UnixStreamSocket(socket, MaxSize)
 	{
 		MS_TRACE_STD();
 

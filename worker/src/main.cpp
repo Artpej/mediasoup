@@ -33,21 +33,21 @@ static void exitWithError();
 int main(int argc, char* argv[])
 {
 	// Ensure we are called by our Node library.
-	if (argc == 1 || (std::getenv("MEDIASOUP_CHANNEL_FD") == nullptr))
+	if (argc < 3)
 	{
-		std::cerr << "ERROR: you don't seem to be my real father" << std::endl;
+		std::cerr << "mediasoup-worker [socket_path] [worker_id]" << std::endl;
 
 		std::_Exit(EXIT_FAILURE);
 	}
 
-	std::string id = std::string(argv[1]);
-	int channelFd  = std::stoi(std::getenv("MEDIASOUP_CHANNEL_FD"));
+	std::string id = std::string(argv[2]);
+	std::string socket = std::string(argv[1]);
 
 	// Initialize libuv stuff (we need it for the Channel).
 	DepLibUV::ClassInit();
 
 	// Set the Channel socket (this will be handled and deleted by the Loop).
-	auto* channel = new Channel::UnixStreamSocket(channelFd);
+	auto* channel = new Channel::UnixStreamSocket(socket);
 
 	// Initialize the Logger.
 	Logger::Init(id, channel);
